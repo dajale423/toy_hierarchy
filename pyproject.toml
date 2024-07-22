@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "toy-hierarchy"
+name = "toy_hierarchy"
 version = "0.1.0"
 description = "\"Toy Models of Hierarchy\""
 authors = ["Daniel Lee <dajale423@gmail.com>"]
