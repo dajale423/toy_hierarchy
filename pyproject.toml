@@ -7,7 +7,10 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-
+transformer-lens = "^1.14.0"
+eindex-callum = {git = "https://github.com/callummcdougall/eindex.git"}
+jaxtyping
+einops
 
 [build-system]
 requires = ["poetry-core"]
