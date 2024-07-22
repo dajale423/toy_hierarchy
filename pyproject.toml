@@ -12,6 +12,8 @@ eindex-callum = {git = "https://github.com/callummcdougall/eindex.git"}
 jaxtyping = "^0.2.25"
 jupyter = "^1.0.0"
 einops = "^0.7.0"
+plotly = "^5.19.0"
+matplotlib = "3.8.3"
 
 [build-system]
 requires = ["poetry-core"]
