@@ -10,7 +10,7 @@ python = "^3.11"
 transformer-lens = "^1.14.0"
 eindex-callum = {git = "https://github.com/callummcdougall/eindex.git"}
 jaxtyping = "^0.2.25"
-jupyter = "^1.0.0
+jupyter = "^1.0.0"
 einops = "^0.7.0"
 
 [build-system]
