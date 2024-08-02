@@ -689,30 +689,48 @@ def plot_features_in_2d_hierarchy(
         t = int(val) 
         for instance_idx, ((row, col), n_feats) in enumerate(zip(row_col_tuples, n_features_per_instance)):
             for feature_idx in range(n_feats):
-                # parent
+                x, y = W[t][instance_idx][feature_idx].tolist()
+                
                 if feature_idx < 2:            
-                    x, y = W[t][instance_idx][feature_idx].tolist()
                     lines[instance_idx][feature_idx].set_data([0, x], [0, y])
                     markers[instance_idx][feature_idx].set_data(x, y)
-                    lines[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
-                    markers[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
-                else:
+
+                elif feature_idx < 6:
                     # get the parent idx
                     level = 2
                     start_idx = 2**(level) - 1 - 1 # -1 because we have no root
-                    i = (feature_idx - start_idx)//2
-                    # i = feature_idx - start_idx
+                    i = (feature_idx - start_idx)//2                    
+                    parent_idx = (start_idx + 2*i - 1) // 2 
                     
-                    parent_idx = (start_idx + 2*i - 1) // 2 # -1 because we have no root
                     # print(f"feature index {feature_idx} and parent index {parent_idx}")
-                    
                     x_parent, y_parent = W[t][instance_idx][parent_idx].tolist()
-                    
-                    x, y = W[t][instance_idx][feature_idx].tolist()
                     lines[instance_idx][feature_idx].set_data([x_parent, x + x_parent], [y_parent, y + y_parent])
                     markers[instance_idx][feature_idx].set_data(x_parent + x, y_parent + y)
-                    lines[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
-                    markers[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
+
+                else:
+                    level = 3
+                    
+                    start_idx = 2**(level) - 1 - 1 # -1 because we have no root
+                    i = (feature_idx - start_idx)//2                    
+                    parent_idx = (start_idx + 2*i - 1) // 2 
+
+                    ## get parent of parent
+                    level = 2
+                    start_idx = 2**(level) - 1 - 1 # -1 because we have no root
+                    i = (parent_idx - start_idx)//2                    
+                    parent_of_parent_idx = (start_idx + 2*i - 1) // 2
+
+                    # print(f"feature index {feature_idx} and parent index {parent_idx} and parent of parent index {parent_of_parent_idx}")
+
+                    x_parent, y_parent = W[t][instance_idx][parent_idx].tolist()
+                    x_p_of_p, y_p_of_p = W[t][instance_idx][parent_of_parent_idx].tolist()
+                    
+                    lines[instance_idx][feature_idx].set_data([x_parent + x_p_of_p, x + x_parent + x_p_of_p], 
+                                                              [y_p_of_p + y_parent, y + y_p_of_p + y_parent])
+                    markers[instance_idx][feature_idx].set_data(x_parent + x_p_of_p + x, y_p_of_p + y_parent + y)                    
+
+                lines[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
+                markers[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
             if title:
                 fig.suptitle(title[t], fontsize=15)
             if subplot_titles:
@@ -751,7 +769,6 @@ def plot_features_in_2d_hierarchy(
         return
 
     plt.show()
-
 
 
 def frac_active_line_plot(
