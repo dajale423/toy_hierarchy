@@ -513,7 +513,7 @@ def plot_features_in_2d(
             for feature_idx in range(n_feats):
                 x, y = W[t][instance_idx][feature_idx].tolist()
                 lines[instance_idx][feature_idx].set_data([0, x], [0, y])
-                markers[instance_idx][feature_idx].set_data(x, y)
+                markers[instance_idx][feature_idx].set_data([x], [y])
                 lines[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
                 markers[instance_idx][feature_idx].set_color(colors[t][instance_idx][feature_idx])
             if title:
@@ -690,10 +690,9 @@ def plot_features_in_2d_hierarchy(
         for instance_idx, ((row, col), n_feats) in enumerate(zip(row_col_tuples, n_features_per_instance)):
             for feature_idx in range(n_feats):
                 x, y = W[t][instance_idx][feature_idx].tolist()
-                
                 if feature_idx < 2:            
                     lines[instance_idx][feature_idx].set_data([0, x], [0, y])
-                    markers[instance_idx][feature_idx].set_data(x, y)
+                    markers[instance_idx][feature_idx].set_data([x], [y])
 
                 elif feature_idx < 6:
                     # get the parent idx
@@ -705,7 +704,7 @@ def plot_features_in_2d_hierarchy(
                     # print(f"feature index {feature_idx} and parent index {parent_idx}")
                     x_parent, y_parent = W[t][instance_idx][parent_idx].tolist()
                     lines[instance_idx][feature_idx].set_data([x_parent, x + x_parent], [y_parent, y + y_parent])
-                    markers[instance_idx][feature_idx].set_data(x_parent + x, y_parent + y)
+                    markers[instance_idx][feature_idx].set_data([x + x_parent], [y + y_parent])
 
                 else:
                     level = 3
