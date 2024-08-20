@@ -15,6 +15,9 @@ einops = "^0.7.0"
 plotly = "^5.19.0"
 matplotlib = "3.8.3"
 
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
