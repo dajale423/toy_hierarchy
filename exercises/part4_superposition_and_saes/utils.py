@@ -47,6 +47,9 @@ new_cmap = LinearSegmentedColormap.from_list("modified_coolwarm", colors)
 #     plt.register_cmap(cmap=new_cmap)
 
 
+from matplotlib import rcParams
+rcParams['font.family'] = 'serif'
+rcParams['text.usetex'] = True
 
 
 def set_matplotlib_backend(backend):
@@ -769,7 +772,302 @@ def plot_features_in_2d_hierarchy(
 
     plt.show()
 
+
 def plot_features_in_2d_hierarchy_labeled(
+    W: Union[list, Float[Tensor, "timesteps instances d_hidden feats"]],
+    colors = None, # shape [timesteps instances feats]
+    title: Optional[str] = None,
+    subplot_titles: Optional[List[str]] = None,
+    save: Optional[str] = None,
+    colab: bool = False,
+    n_rows: bool = None,
+    adjustable_limits: bool = False,
+    absolute_limits: float = 1.5,
+):
+    '''
+    Visualises superposition in 2D.
+    If values is 4D, the first dimension is assumed to be timesteps, and an animation is created.
+    '''
+
+    # Convert values to 4D for consistency (note that values might also be a list)
+    # Also, for consistency we have values be a list of lists of 2D tensors (cause they might not stack)
+    if isinstance(W, Tensor): W = W.detach().cpu()
+    n_dims = W[0][0].ndim + 2 # This works if values is wrapped with 0 / 1 / 2 lists
+    for _ in range(n_dims, 4):
+        W = [W]
+    W: List[List[Tensor]] = [[W_instance.T for W_instance in W_timestep] for W_timestep in W]
+    # So values is a list of lists of tensors, where each tensor corresponds to one instance at one timestep
+
+    # Get dimensions
+    n_timesteps = len(W)
+    n_instances = len(W[0])
+
+    # Get features per instance, and limits per instance
+    n_features_per_instance = [W_instance.size(0) for W_instance in W[0]]
+    if adjustable_limits:
+        limits_per_instance = [
+            1.5 * max(W_instance[instance_idx].abs().max().item() for W_instance in W)
+            for instance_idx in range(n_instances)
+        ]
+    else:
+        limits_per_instance = [absolute_limits for _ in range(n_instances)]
+
+    # Use `n_instances` to figure out how many rows & cols we want (by default just 1 row)
+    if n_rows is None:
+        n_rows, n_cols = 1, n_instances
+        row_col_tuples = [(0, i) for i in range(n_instances)]
+    else:
+        n_cols = n_instances // n_rows
+        row_col_tuples = [(i // n_cols, i % n_cols) for i in range(n_instances)]
+
+    # Set correct matplotlib backend (if it's an animation then we have to open it in a new window)
+    if not(colab):
+        set_matplotlib_backend("qt" if n_timesteps > 1 else "inline")
+
+    # ! This is the section where we convert colors to 3D, with shape [timesteps, instances, features]. Several different cases to handle.
+    colors = copy(colors)
+    # If colors is 0D (i.e. none, or a single string color), make it 2D (i.e. same for all features & instance & timesteps)
+    if isinstance(colors, str) or (colors is None):
+        colors = [[colors for _ in range(n_feats)] for n_feats in n_features_per_instance]
+    # If colors is 1D (i.e. it's a list of colors per timestep), make it 3D (i.e. broadcast over features & instances)
+    if isinstance(colors, list) and len(colors) == n_timesteps:
+        for i, colors_timestep in enumerate(colors):
+            if isinstance(colors_timestep, str) or (colors_timestep is None):
+                colors[i] = [[colors_timestep for _ in range(n_feats)] for n_feats in n_features_per_instance]
+    # If colors is 1D (i.e. it's a list of colors per feature), broadcast this across all instances
+    # (Note, if we want 1D but to broadcast across features not instances, we need to pass e.g. [["red"], ["blue"]] not ["red", "blue"])
+    if isinstance(colors, list) and isinstance(colors[0], str):
+        colors = [colors for _ in range(n_instances)]
+    # If colors is 1D in the other way (i.e. a list of colors per instance), broadcast this across all features
+    if isinstance(colors, list) and isinstance(colors[0], list) and isinstance(colors[0][0], str) and len(colors[0]) == 1:
+        colors = [[c[0] for _ in range(n_feats)] for c, n_feats in zip(colors, n_features_per_instance)]
+    # If colors is 2D (i.e. we have colors for each (instance, feature)) then broadcast this across all timesteps
+    if any([
+        colors is None,
+        isinstance(colors, list) and isinstance(colors[0], list) and ((colors[0][0] is None) or isinstance(colors[0][0], str)),
+        (isinstance(colors, Tensor) or isinstance(colors, Arr)) and colors.ndim == 2,
+    ]):
+        colors = [colors for _ in range(n_timesteps)]
+    # Now that colors has 3D shape [timesteps, instances, features] we can convert it to nested lists of strings
+    colors = [[[
+                parse_colors_for_superposition_plot(c_feat)
+                for c_feat in c_inst
+            ] for c_inst in c_timestep
+        ] for c_timestep in colors
+    ]
+    # Finally, we double the length of colors if they're a list of length n_instances//2, because this is how we plot W_enc and W_dec
+    colors = [2 * x if (isinstance(x, list) and (len(x) == n_instances // 2)) else x for x in colors]
+
+    # Same for subplot titles & titles: we want to give them a `n_timesteps` dimension
+    if subplot_titles is not None:
+        if isinstance(subplot_titles, list) and isinstance(subplot_titles[0], str):
+            subplot_titles = [subplot_titles for _ in range(n_timesteps)]
+    if title is not None:
+        if isinstance(title, str):
+            title = [title for _ in range(n_timesteps)]
+
+    figure_size_factor = 5
+    # Create a figure and axes, and make sure axs is a 2D array
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(figure_size_factor*n_cols, figure_size_factor*n_rows))
+    axs = np.broadcast_to(axs, (n_rows, n_cols))
+
+    # If there are titles, add more spacing for them
+    fig.subplots_adjust(bottom=0.2, top=(0.8 if title else 0.9), left=0.1, right=0.9, hspace=0.5)
+
+    # Initialize lines and markers
+    lines = []
+    markers = []
+    for instance_idx, ((row, col), n_feats, limits_per_instance) in enumerate(zip(row_col_tuples, n_features_per_instance, limits_per_instance)):
+
+        # Get the right line width for this particular instance (smaller if we're plotting a lot of data)
+        linewidth, markersize = (1, 4) if (n_feats >= 25) else (1.5, 15)
+
+        # Get the right axis, and set the limits
+        ax = axs[row, col]
+        ax.set_xlim(-limits_per_instance, limits_per_instance)
+        ax.set_ylim(-limits_per_instance, limits_per_instance)
+        ax.set_aspect('equal', adjustable='box')
+
+        # Add all the features for this instance
+        instance_lines = []
+        instance_markers = []
+        for feature_idx in range(n_feats):
+            color = colors[0][instance_idx][feature_idx]
+            line, = ax.plot([], [], color=color, lw=linewidth)
+            marker, = ax.plot([], [], color=color, marker='o', markersize=markersize)
+            instance_lines.append(line)
+            instance_markers.append(marker)
+
+        # add a marker at the origin
+        marker, = ax.plot([0], [0], color='red', marker='o', markersize=markersize - 7, markerfacecolor="None", 
+                          zorder=20)
+        instance_markers.append(marker)
+
+        lines.append(instance_lines)
+        markers.append(instance_markers)
+
+    def get_feature_label(feature_idx):
+        if feature_idx < 2:
+            return str(feature_idx)
+        elif feature_idx < 6:
+            parent = (feature_idx - 2) // 2
+            child = (feature_idx - 2) % 2
+            return f"{parent}.{child}"
+        else:
+            grandparent = (feature_idx - 6) // 4
+            parent = ((feature_idx - 6) % 4) // 2
+            child = (feature_idx - 6) % 2
+            return f"{grandparent}.{parent}.{child}"
+
+    def update(val):
+        if n_timesteps > 1:
+            _ = slider.val
+        t = int(val)
+
+        grey_color = '#808080'  # Darker grey for axes and origin dot
+        padding = 0.15  # Add padding to each side
+
+        for instance_idx, ((row, col), n_feats) in enumerate(zip(row_col_tuples, n_features_per_instance)):
+            ax = axs[row, col]
+            ax.clear()  # Clear previous plot
+            
+            # Extend the limits to add padding
+            extended_limits = absolute_limits * (1 + padding)
+            ax.set_xlim(-extended_limits, extended_limits)
+            ax.set_ylim(-extended_limits, extended_limits)
+            ax.set_aspect('equal', adjustable='box')
+            
+            # Set up axes
+            ax.spines['left'].set_position(('data', -extended_limits))
+            ax.spines['bottom'].set_position(('data', -extended_limits))
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            
+            # Set axes color and add ticks
+            for spine in ax.spines.values():
+                spine.set_color(grey_color)
+            ax.tick_params(axis='both', colors=grey_color, direction='out', length=4)
+            ax.xaxis.set_ticks_position('bottom')
+            ax.yaxis.set_ticks_position('left')
+            
+            # Set ticks at integer values within the original limits
+            tick_values = list(range(int(-absolute_limits), int(absolute_limits) + 1))
+            ax.set_xticks(tick_values)
+            ax.set_yticks(tick_values)
+            ax.set_xticklabels(tick_values, color=grey_color)
+            ax.set_yticklabels(tick_values, color=grey_color)
+
+            # Add origin dot in the same color as the axes
+            ax.scatter(0, 0, color=grey_color, s=15, zorder=20)
+
+            def get_feature_label(feature_idx):
+                if feature_idx < 2:
+                    return f"f_{{{feature_idx}}}"
+                elif feature_idx < 6:
+                    parent = (feature_idx - 2) // 2
+                    child = (feature_idx - 2) % 2
+                    return f"f_{{{parent}.{child}}}"
+                else:
+                    grandparent = (feature_idx - 6) // 4
+                    parent = ((feature_idx - 6) % 4) // 2
+                    child = (feature_idx - 6) % 2
+                    return f"f_{{{grandparent}.{parent}.{child}}}"
+
+            for feature_idx in range(n_feats):
+                label = get_feature_label(feature_idx)
+
+                if feature_idx < 2:
+                    x, y = W[t][instance_idx][feature_idx].tolist()
+                    ax.plot([0, x], [0, y], color='tab:blue', linewidth=1.5)
+                    ax.scatter(x, y, color='tab:blue', s=100, zorder=10)
+                elif feature_idx < 6:
+                    parent_idx = (feature_idx - 2) // 2
+                    x_parent, y_parent = W[t][instance_idx][parent_idx].tolist()
+                    x, y = W[t][instance_idx][feature_idx].tolist()
+                    ax.plot([x_parent, x_parent + x], [y_parent, y_parent + y], color='tab:blue', linewidth=1.5)
+                    ax.scatter(x_parent + x, y_parent + y, color='tab:blue', s=100, zorder=10)
+                else:
+                    parent_idx = (feature_idx - 6) // 2 + 2
+                    grandparent_idx = (feature_idx - 6) // 4
+                    x_parent, y_parent = W[t][instance_idx][parent_idx].tolist()
+                    x_grandparent, y_grandparent = W[t][instance_idx][grandparent_idx].tolist()
+                    x, y = W[t][instance_idx][feature_idx].tolist()
+                    ax.plot([x_parent + x_grandparent, x + x_parent + x_grandparent], 
+                            [y_grandparent + y_parent, y + y_grandparent + y_parent], 
+                            color='tab:blue', linewidth=1.5)
+                    ax.scatter(x + x_parent + x_grandparent, y + y_grandparent + y_parent, color='tab:blue', s=100, zorder=10)
+
+                # Optimize label positioning
+                if feature_idx < 2:
+                    label_x, label_y = x, y
+                elif feature_idx < 6:
+                    label_x, label_y = x_parent + x, y_parent + y
+                else:
+                    label_x, label_y = x + x_parent + x_grandparent, y + y_grandparent + y_parent
+
+                # Adjust label position based on quadrant
+                offset = 0.06 * absolute_limits  # Reduced offset to bring labels closer
+                if label_x >= 0:
+                    ha = 'left'
+                    label_x += offset
+                else:
+                    ha = 'right'
+                    label_x -= offset
+                if label_y >= 0:
+                    va = 'bottom'
+                    label_y += offset
+                else:
+                    va = 'top'
+                    label_y -= offset
+
+                ax.annotate(f'${label}$', (label_x, label_y),
+                            color='black', fontsize=12, ha=ha, va=va,
+                            weight='bold', zorder=15)
+
+            if subplot_titles:
+                ax.set_title(subplot_titles[t][instance_idx], fontsize=12)
+
+        if title:
+            fig.suptitle(title[t], fontsize=15)
+
+        fig.canvas.draw_idle()
+
+        plt.savefig('plot.png', dpi=300, bbox_inches='tight')
+
+    def play(event):
+        _ = slider.val
+        for i in range(n_timesteps):
+            update(i)
+            slider.set_val(i)
+            plt.pause(0.05)
+        fig.canvas.draw_idle()
+
+    if n_timesteps > 1:
+        # Create the slider
+        ax_slider = plt.axes([0.15, 0.05, 0.7, 0.05], facecolor='lightgray')
+        slider = Slider(ax_slider, 'Time', 0, n_timesteps - 1, valinit=0, valfmt='%1.0f')
+
+        # Call the update function when the slider value is changed / button is clicked
+        slider.on_changed(update)
+
+        # Initialize the plot
+        play(0)
+    else:
+        update(0)
+
+    # Save
+    if isinstance(save, str):
+        ani = FuncAnimation(fig, update, frames=n_timesteps, interval=50, repeat=False)
+        ani.save(save, writer='pillow', fps=25)
+    elif colab:
+        ani = FuncAnimation(fig, update, frames=n_timesteps, interval=50, repeat=False)
+        clear_output()
+        display(HTML(ani.to_html5_video()))
+        return
+
+    plt.show()
+
+def plot_features_in_2d_hierarchy_labeled_old(
     W: Union[list, Float[Tensor, "timesteps instances d_hidden feats"]],
     colors = None, # shape [timesteps instances feats]
     title: Optional[str] = None,
