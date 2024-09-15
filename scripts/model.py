@@ -192,10 +192,10 @@ class Model(nn.Module):
         )
         return F.relu(out + self.b_final)
 
-    def sample(self: Model, size):
+    def sample(self, size):
         return t.tensor(np.random.choice(self.valid_indices, size=size), dtype = t.int)
     
-    def generate_batch(self: Model, batch_size) -> Float[Tensor, "batch_size instances features"]:
+    def generate_batch(self, batch_size) -> Float[Tensor, "batch_size instances features"]:
         '''
         Generates a batch of data using the tree structure and sample_equal_probability function.
         '''
