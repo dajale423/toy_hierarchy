@@ -37,14 +37,14 @@ from utils import (
 # import part4_superposition_and_saes.tests as tests
 # import part4_superposition_and_saes.solutions as solutions
 
-if t.backends.mps.is_available():
-    print("current PyTorch install was "
-              "built with MPS enabled.")
-    if t.backends.mps.is_built():
-        print("MPS is available")
-        device = t.device("mps")
-else:
-    device = t.device("cuda" if t.cuda.is_available() else "cpu")
+# if t.backends.mps.is_available():
+#     # print("current PyTorch install was "
+#     #           "built with MPS enabled.")
+#     if t.backends.mps.is_built():
+#         # print("MPS is available")
+#         device = t.device("mps")
+# else:
+#     device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 ## Class and Function for Trees
 class Node:
@@ -92,6 +92,9 @@ class Tree:
 
 ## For constructing a tree with same branching factor over depth d
 def construct_tree(branching_factor, depth):
+    return Tree(_construct_tree(branching_factor, depth))
+
+def _construct_tree(branching_factor, depth):
     # Create a new Node
     a = Node()
     # Base case: if depth is 0, return the leaf node
@@ -100,7 +103,7 @@ def construct_tree(branching_factor, depth):
     # Recursive case: create children for the current node
     for branching_factor_i in range(branching_factor):
         # Recursively construct subtrees and add them as children
-        a.add_child(construct_tree(branching_factor, depth - 1))
+        a.add_child(_construct_tree(branching_factor, depth - 1))
     # Return the root of the constructed tree
     return a   
 
@@ -145,7 +148,7 @@ class Model(nn.Module):
         cfg: Config,
         feature_probability: Optional[Union[float, Tensor]] = None,
         importance: Optional[Union[float, Tensor]] = None,
-        device = device,
+        device = "cuda",
     ):
         super().__init__()
         self.cfg = cfg
@@ -168,11 +171,9 @@ class Model(nn.Module):
         else:
             self.valid_indices = get_leaf_indices(self.cfg.tree)
 
-        print(self.valid_indices)
-
         self.device = device
 
-        all_paths = tree.to_list()
+        all_paths = self.cfg.tree.to_list()
         self.input_tensor = t.stack([t.tensor([1 if any(p == '.'.join(path.split('.')[:i+1]) 
                                                         for i in range(len(path.split('.')))) else 0 for p in all_paths], 
                                device=device).to(t.int) for path in all_paths], dim = 0)
@@ -195,13 +196,16 @@ class Model(nn.Module):
     def sample(self, size):
         return t.tensor(np.random.choice(self.valid_indices, size=size), dtype = t.int)
     
-    def generate_batch(self, batch_size) -> Float[Tensor, "batch_size instances features"]:
+    def generate_batch(self, batch_size, return_indices = False) -> Float[Tensor, "batch_size instances features"]:
         '''
         Generates a batch of data using the tree structure and sample_equal_probability function.
         '''
         indices = self.sample(size = (batch_size, self.cfg.n_instances))
         feat = self.input_tensor[indices]
-        return feat.to(t.float)
+        if return_indices:
+            return feat.to(t.float), indices
+        else:
+            return feat.to(t.float)
 
     def calculate_loss(
         self,
