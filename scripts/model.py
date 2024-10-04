@@ -89,6 +89,24 @@ class Tree:
             # result.append(new_string)
 
         return result
+    
+    def get_fraction_list_for_equal_level(self, valid_indices = None):
+        all_paths = self.to_list()
+        if valid_indices is not None:
+            all_paths = [all_paths[i] for i in valid_indices]
+
+        
+        levels_list = [path.count('.') for path in all_paths]
+        unique_levels = sorted(set(levels_list))
+        levels_tensor = t.tensor(levels_list)
+
+        count_dict = {}
+
+        for level in list(unique_levels):
+            count_dict[level] = (levels_tensor == level).sum().item()
+        
+        fraction_list = [1/(count_dict[x] * len(unique_levels)) for x in levels_list]
+        return fraction_list
 
 ## For constructing a tree with same branching factor over depth d
 def construct_tree(branching_factor, depth):
@@ -137,6 +155,7 @@ class Config:
     # branching_factor: int = 2
     n_hidden: int = 2
     partial_paths: bool = True
+    sample_type: str = "all_equal"
 
 class Model(nn.Module):
     W: Float[Tensor, "n_instances n_hidden n_features"]
@@ -193,8 +212,30 @@ class Model(nn.Module):
         )
         return F.relu(out + self.b_final)
 
+    # def sample(self, size, type = "equal"):
+    #     '''
+    #     Samples indices from the valid indices with equal probability.
+    #     '''
+    #     if type == "equal":
+    #         return t.tensor(np.random.choice(self.valid_indices, size=size), dtype = t.int)
+    #     elif type == "importance":
+    #         return t.tensor(np.random.choice(self.valid_indices, size=size, p = self.importance.flatten() / self.importance.flatten().sum()), dtype = t.int)
+    #     else:
+    #         raise ValueError(f"Invalid sample type: {type}")
+        
     def sample(self, size):
-        return t.tensor(np.random.choice(self.valid_indices, size=size), dtype = t.int)
+        '''
+        Samples indices from the valid indices with equal probability or by tree level.
+        '''
+        if self.cfg.sample_type == "all_equal":
+            return t.tensor(np.random.choice(self.valid_indices, size=size), dtype=t.int)
+        elif self.cfg.sample_type == "level_equal":
+            fraction_list = self.cfg.tree.get_fraction_list_for_equal_level(self.valid_indices)
+            return t.tensor(np.random.choice(self.valid_indices, size=size, p=fraction_list), dtype=t.int)
+        else:
+            raise ValueError(f"Invalid sample type: {type}")
+
+    # ... rest of the class ...
     
     def generate_batch(self, batch_size, return_indices = False) -> Float[Tensor, "batch_size instances features"]:
         '''
